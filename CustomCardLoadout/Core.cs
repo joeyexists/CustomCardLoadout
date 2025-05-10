@@ -2,7 +2,7 @@
 using HarmonyLib;
 using System.Reflection;
 
-[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.0-beta", "joeyexists", null)]
+[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.1-beta", "joeyexists", null)]
 [assembly: MelonGame("Little Flag Software, LLC", "Neon White")]
 
 namespace CustomCardLoadout
@@ -89,23 +89,19 @@ namespace CustomCardLoadout
                 startCardInfiniteEntry = category.CreateEntry("Infinite ammo & discards", true,
                     description: "Unlimited ammo, card will not be used upon discarding.");
 
-                enabledEntry.OnEntryValueChanged.Subscribe((oldValue, newValue) =>
+                enabledEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
                 {
                     if (newValue) EnableMod(modInstance);
                     else DisableMod();
                 });
 
-                startCardEntry.OnEntryValueChanged.Subscribe((oldValue, newValue) =>
+                startCardEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
                 {
                     startCard = GetCardID(newValue);
                     originalStartCardColor = null;
-                    if (modEnabled && NeonLite.Modules.Anticheat.Active)
-                    {
-                        modInstance.UpdateGhostName();
-                    }
                 });
 
-                startCardInfiniteEntry.OnEntryValueChanged.Subscribe((oldValue, newValue) =>
+                startCardInfiniteEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
                 {
                     if (modEnabled)
                         ToggleInfiniteAmmoAndDiscardsPatch(newValue);
@@ -123,18 +119,12 @@ namespace CustomCardLoadout
             NeonLite.Modules.Anticheat.Unregister(MelonAssembly);
         }
 
-        public void UpdateGhostName()
-        {
-            NeonLite.Modules.Anticheat.SetGhostName(MelonAssembly, $"CustomCardLoadout_{startCard}");
-        }
-
         private static void EnableMod(Core modInstance)
         {
             GameInstance.OnLevelLoadComplete += OnLevelLoadComplete;
             ToggleInfiniteAmmoAndDiscardsPatch(Settings.startCardInfiniteEntry.Value);
             startCard = GetCardID(Settings.startCardEntry.Value);
             modInstance.RegisterAntiCheat();
-            modInstance.UpdateGhostName();
             modEnabled = true;
         }
 
