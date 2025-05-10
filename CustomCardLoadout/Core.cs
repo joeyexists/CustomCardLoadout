@@ -1,6 +1,7 @@
 ﻿using MelonLoader;
 using HarmonyLib;
 using System.Reflection;
+using UnityEngine.SceneManagement;
 
 [assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.1-beta", "joeyexists", null)]
 [assembly: MelonGame("Little Flag Software, LLC", "Neon White")]
@@ -178,6 +179,11 @@ namespace CustomCardLoadout
 
         public static void OnLevelLoadComplete()
         {
+            if (SceneManager.GetActiveScene().name.Equals("Heaven_Environment"))
+            {
+                return;
+            }
+
             TryAddCard(startCard, infiniteAmmoAndDiscardsPatched);
         }
 
