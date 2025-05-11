@@ -2,6 +2,7 @@
 using HarmonyLib;
 using System.Reflection;
 using UnityEngine.SceneManagement;
+using static CustomCardLoadout.Core;
 
 [assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.1-beta", "joeyexists", null)]
 [assembly: MelonGame("Little Flag Software, LLC", "Neon White")]
@@ -33,8 +34,9 @@ namespace CustomCardLoadout
 
         private static bool modEnabled = false;
         private static bool infiniteAmmoAndDiscardsPatched = false;
-        private static string startCard = null;
-        private static UnityEngine.Color? originalStartCardColor = null;
+        private static PlayerCardData startCardData = null;
+        private static UnityEngine.Color? originalCardColor = null;
+        //private static UnityEngine.Color? originalStartCardColor = null;
 
         public enum Cards
         {
@@ -85,7 +87,7 @@ namespace CustomCardLoadout
 
                 enabledEntry = category.CreateEntry("Enabled", true,
                     description: "Use a custom loadout.\n\nTriggers anti-cheat. To reset it, return to the hub.");
-                startCardEntry = category.CreateEntry("Card to start with", Cards.Dominion,
+                startCardEntry = category.CreateEntry("Card to spawn with", Cards.Dominion,
                     description: "Applies to every level");
                 startCardInfiniteEntry = category.CreateEntry("Infinite ammo & discards", true,
                     description: "Unlimited ammo, card will not be used upon discarding.");
@@ -98,8 +100,7 @@ namespace CustomCardLoadout
 
                 startCardEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
                 {
-                    startCard = GetCardID(newValue);
-                    originalStartCardColor = null;
+                    UpdateStartCard(GetCardID(newValue));
                 });
 
                 startCardInfiniteEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
@@ -124,7 +125,7 @@ namespace CustomCardLoadout
         {
             GameInstance.OnLevelLoadComplete += OnLevelLoadComplete;
             ToggleInfiniteAmmoAndDiscardsPatch(Settings.startCardInfiniteEntry.Value);
-            startCard = GetCardID(Settings.startCardEntry.Value);
+            UpdateStartCard(GetCardID(Settings.startCardEntry.Value));
             modInstance.RegisterAntiCheat();
             modEnabled = true;
         }
@@ -132,6 +133,7 @@ namespace CustomCardLoadout
         private static void DisableMod()
         {
             GameInstance.OnLevelLoadComplete -= OnLevelLoadComplete;
+            RestoreStartCard();
             UnpatchInfiniteAmmoAndDiscards();
             modEnabled = false;
         }
@@ -184,14 +186,51 @@ namespace CustomCardLoadout
                 return;
             }
 
-            TryAddCard(startCard, infiniteAmmoAndDiscardsPatched);
+            TryAddCard(startCardData);
         }
 
-        private static void TryAddCard(string cardID, bool isInfinite = false)
+        private static void RestoreStartCard()
         {
-            if (string.IsNullOrEmpty(cardID) || !NeonLite.Modules.Anticheat.Active) 
-                return;
+            if (startCardData != null && startCardData.cardName.EndsWith("_Infinite"))
+            {
+                startCardData.cardName = startCardData.cardName.Substring(0, startCardData.cardName.Length - "_Infinite".Length);
+                startCardData.cardColor = originalCardColor.Value;
+            }
+        }
 
+        private static void UpdateStartCard(string cardID)
+        {
+            RestoreStartCard();
+
+            // Get new card
+            if (GameInstance.GetGameData() is not GameData gameData)
+            {
+                MelonLogger.Warning("Failed to update start card: GameData is null.");
+                return;
+            }
+
+            if (gameData.GetCard(cardID) is not PlayerCardData newCard)
+            {
+                MelonLogger.Warning($"Failed to update start card: could not get card data for '{cardID}'.");
+                return;
+            }
+
+            originalCardColor = newCard.cardColor;
+
+            if (infiniteAmmoAndDiscardsPatched)
+            {
+                newCard.cardColor = new UnityEngine.Color(1f, 1f, 1f, 1f);
+                if (!newCard.cardName.EndsWith("_Infinite"))
+                    newCard.cardName += "_Infinite";
+            }
+
+            startCardData = newCard;
+        }
+
+        private static void TryAddCard(PlayerCardData card)
+        {
+            if (card == null || !NeonLite.Modules.Anticheat.Active) 
+                return;
 
             if (UnityEngine.Object.FindObjectOfType<MechController>() is not MechController mech)
             {
@@ -199,33 +238,12 @@ namespace CustomCardLoadout
                 return;
             }
 
-            if (GameInstance.GetGameData() is not GameData gameData)
-            {
-                MelonLogger.Warning("Failed to add card: GameData is null.");
-                return;
-            }
-
-            if (gameData.GetCard(cardID) is not PlayerCardData card)
-            {
-                MelonLogger.Warning($"Failed to add card: could not get card data for '{startCard}'.");
-                return;
-            }
-
             int ammoOverride = 0;
-            UnityEngine.Color white = new(1f, 1f, 1f, 1f);
 
-            if (!originalStartCardColor.HasValue)
-                originalStartCardColor = card.cardColor;
-
-            if (isInfinite)
+            if (infiniteAmmoAndDiscardsPatched)
             {
-                card.cardColor = white;
                 ammoOverride = int.MaxValue / 2;
-                if (!card.cardName.EndsWith("_Infinite"))
-                    card.cardName += "_Infinite";
             }
-            else
-                card.cardColor = originalStartCardColor.Value;
 
             MethodInfo pickupMethod = typeof(MechController).GetMethod("DoCardPickup", BindingFlags.NonPublic | BindingFlags.Instance);
             pickupMethod.Invoke(mech, [card, ammoOverride]);
@@ -242,7 +260,7 @@ namespace CustomCardLoadout
             var card = deck.GetCardInHand(cardInhHandIndex);
             PlayerCardData cardData = card.data;
 
-            if (!cardData.cardName.EndsWith("Infinite"))
+            if (!cardData.cardName.EndsWith("_Infinite"))
             {
                 return true;
             }
