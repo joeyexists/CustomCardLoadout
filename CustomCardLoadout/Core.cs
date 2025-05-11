@@ -3,7 +3,7 @@ using HarmonyLib;
 using System.Reflection;
 using UnityEngine.SceneManagement;
 
-[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.2-beta", "joeyexists", null)]
+[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.3-beta", "joeyexists", null)]
 [assembly: MelonGame("Little Flag Software, LLC", "Neon White")]
 
 namespace CustomCardLoadout
