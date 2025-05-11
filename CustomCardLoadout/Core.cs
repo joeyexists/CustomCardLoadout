@@ -2,7 +2,6 @@
 using HarmonyLib;
 using System.Reflection;
 using UnityEngine.SceneManagement;
-using static CustomCardLoadout.Core;
 
 [assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.2-beta", "joeyexists", null)]
 [assembly: MelonGame("Little Flag Software, LLC", "Neon White")]
@@ -106,7 +105,10 @@ namespace CustomCardLoadout
                 startCardInfiniteEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
                 {
                     if (modEnabled)
+                    {
                         ToggleInfiniteAmmoAndDiscardsPatch(newValue);
+                        UpdateStartCard(GetCardID(startCardEntry.Value));
+                    }
                 });
             }
         }
