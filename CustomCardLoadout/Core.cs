@@ -1,6 +1,6 @@
 ﻿using MelonLoader;
 
-[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "2.0.0-beta", "joeyexists", null)]
+[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "2.0.1-beta", "joeyexists", null)]
 [assembly: MelonGame("Little Flag Software, LLC", "Neon White")]
 
 namespace CustomCardLoadout

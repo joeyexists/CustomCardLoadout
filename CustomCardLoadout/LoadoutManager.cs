@@ -64,6 +64,8 @@ namespace CustomCardLoadout
             if (selectedCard == Core.Settings.CardOptions.None)
             {
                 cardSlot = new CustomCardSlot();
+                if (HarmonyPatcher.IsPatched_MechController_UseDiscardAbility)
+                    SetOverrideCardColors(UnlimitedDiscardsCardColor);
                 return;
             }
 
