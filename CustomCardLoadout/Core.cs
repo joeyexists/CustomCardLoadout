@@ -1,9 +1,6 @@
 ﻿using MelonLoader;
-using HarmonyLib;
-using System.Reflection;
-using UnityEngine.SceneManagement;
 
-[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.3-beta", "joeyexists", null)]
+[assembly: MelonInfo(typeof(CustomCardLoadout.Core), "CustomCardLoadout", "1.0.0", "joeyexists", null)]
 [assembly: MelonGame("Little Flag Software, LLC", "Neon White")]
 
 namespace CustomCardLoadout
@@ -12,40 +9,7 @@ namespace CustomCardLoadout
     {
         internal static Game GameInstance { get; private set; }
         internal static new HarmonyLib.Harmony HarmonyInstance { get; private set; }
-
-        private static readonly MethodInfo OriginalUseDiscardAbilityMethod =
-            AccessTools.Method(typeof(MechController), "UseDiscardAbility", [typeof(int)]);
-
-        private static readonly MethodInfo UseDiscardAbilityPrefixMethod =
-            typeof(Core).GetMethod(nameof(UseDiscardAbilityPrefixPatch));
-
-        private static readonly HarmonyMethod UseDiscardAbilityPrefix =
-            new(UseDiscardAbilityPrefixMethod);
-
-        private static readonly MethodInfo OriginalUpdateCardHUDMethod =
-            AccessTools.Method(typeof(PlayerUICardHUD), "UpdateHUD");
-
-        private static readonly MethodInfo UpdateCardHUDPostfixMethod =
-            typeof(Core).GetMethod(nameof(UpdateCardHUDPostfixPatch));
-
-        private static readonly HarmonyMethod UpdateCardHUDPostfix =
-            new(UpdateCardHUDPostfixMethod);
-
-        private static bool modEnabled = false;
-        private static bool infiniteAmmoAndDiscardsPatched = false;
-        private static PlayerCardData startCardData = null;
-        private static UnityEngine.Color? originalCardColor = null;
-        //private static UnityEngine.Color? originalStartCardColor = null;
-
-        public enum Cards
-        {
-            Purify,
-            Elevate,
-            Godspeed,
-            Stomp,
-            Fireball,
-            Dominion
-        }
+        private static bool isModEnabled = false;
 
         public override void OnLateInitializeMelon()
         {
@@ -53,62 +17,114 @@ namespace CustomCardLoadout
             HarmonyInstance = new HarmonyLib.Harmony("com.joeyexists.CustomCardLoadout");
 
             Settings.Register(this);
+            Settings.removeDiscardLocksEntry.Value = false;
 
             GameInstance.OnInitializationComplete += () =>
             {
-                if (Settings.enabledEntry.Value)
+                if (Settings.modEnabledEntry.Value)
                     EnableMod(this);
             };
         }
-
-        public static string GetCardID(Cards card) => card switch
-        {
-            Cards.Purify => "MACHINEGUN",
-            Cards.Elevate => "PISTOL",
-            Cards.Godspeed => "RIFLE",
-            Cards.Stomp => "UZI",
-            Cards.Fireball => "SHOTGUN",
-            Cards.Dominion => "ROCKETLAUNCHER",
-            _ => string.Empty
-        };
 
         public static class Settings
         {
             public static MelonPreferences_Category category;
 
-            public static MelonPreferences_Entry<bool> enabledEntry;
-            public static MelonPreferences_Entry<Cards> startCardEntry;
-            public static MelonPreferences_Entry<bool> startCardInfiniteEntry;
-
+            public static MelonPreferences_Entry<bool> modEnabledEntry;
+            public static MelonPreferences_Entry<CardOptions> firstCardSlotEntry;
+            public static MelonPreferences_Entry<CardOptions> secondCardSlotEntry;
+            public static MelonPreferences_Entry<int> firstCardSlotCountEntry;
+            public static MelonPreferences_Entry<int> secondCardSlotCountEntry;
+            public static MelonPreferences_Entry<bool> infiniteAmmoEntry;
+            public static MelonPreferences_Entry<bool> unlimitedDiscardsEntry;
+            public static MelonPreferences_Entry<bool> removeDiscardLocksEntry;
+            public enum CardOptions
+            {
+                None,
+                Purify,
+                Elevate,
+                Godspeed,
+                Stomp,
+                Fireball,
+                Dominion,
+                BookOfLife,
+                MiracleKatana
+            }
             public static void Register(Core modInstance)
             {
                 category = MelonPreferences.CreateCategory("Custom Card Loadout");
 
-                enabledEntry = category.CreateEntry("Enabled", true,
-                    description: "Use a custom loadout.\n\nTriggers anti-cheat. To reset it, return to the hub.");
-                startCardEntry = category.CreateEntry("Card to spawn with", Cards.Dominion,
-                    description: "Applies to every level");
-                startCardInfiniteEntry = category.CreateEntry("Infinite ammo & discards", true,
-                    description: "Unlimited ammo, card will not be used upon discarding.");
+                modEnabledEntry = category.CreateEntry("Enabled", false,
+                    description: "Enables the mod.\n\nTriggers anti-cheat. To reset it, return to the hub.");
 
-                enabledEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
+                firstCardSlotEntry = category.CreateEntry("Card Slot 1", CardOptions.Dominion);
+                secondCardSlotEntry = category.CreateEntry("Card Slot 2", CardOptions.None);
+
+                firstCardSlotCountEntry = category.CreateEntry("Slot 1 Card Count", 1, 
+                    validator: new MelonLoader.Preferences.ValueRange<int>(1, 3)); 
+                secondCardSlotCountEntry = category.CreateEntry("Slot 2 Card Count", 1,
+                    validator: new MelonLoader.Preferences.ValueRange<int>(1, 3));
+
+                infiniteAmmoEntry = category.CreateEntry("Infinite Ammo", false);
+                unlimitedDiscardsEntry = category.CreateEntry("Unlimited Discards", false);
+
+                removeDiscardLocksEntry = category.CreateEntry("Remove Discard Locks", false,
+                    description: "Allows you to discard in Yellow's sidequests.\n\nNote: Once enabled, this cannot be turned off without restarting the game. Anti-cheat will also remain active.");
+
+                modEnabledEntry.OnEntryValueChanged.Subscribe((_, enable) =>
+                    ToggleMod(modInstance, enable));
+
+                firstCardSlotEntry.OnEntryValueChanged.Subscribe((_, selectedCard) =>
                 {
-                    if (newValue) EnableMod(modInstance);
-                    else DisableMod();
+                    if (isModEnabled)
+                        LoadoutManager.UpdateCardSlot(ref LoadoutManager.firstCardSlot, selectedCard, firstCardSlotCountEntry.Value);
                 });
 
-                startCardEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
+                secondCardSlotEntry.OnEntryValueChanged.Subscribe((_, selectedCard) =>
                 {
-                    UpdateStartCard(GetCardID(newValue));
+                    if (isModEnabled)
+                        LoadoutManager.UpdateCardSlot(ref LoadoutManager.secondCardSlot, selectedCard, secondCardSlotCountEntry.Value);
                 });
 
-                startCardInfiniteEntry.OnEntryValueChanged.Subscribe((_, newValue) =>
+                firstCardSlotCountEntry.OnEntryValueChanged.Subscribe((_, count) =>
                 {
-                    if (modEnabled)
+                    if (isModEnabled && LoadoutManager.firstCardSlot.cardData != null)
+                        LoadoutManager.firstCardSlot.cardCount = count;
+                });
+
+                secondCardSlotCountEntry.OnEntryValueChanged.Subscribe((_, count) =>
+                {
+                    if (isModEnabled && LoadoutManager.secondCardSlot.cardData != null)
+                        LoadoutManager.secondCardSlot.cardCount = count;
+                });
+
+                infiniteAmmoEntry.OnEntryValueChanged.Subscribe((_, enable) =>
+                {
+                    if (isModEnabled)
                     {
-                        ToggleInfiniteAmmoAndDiscardsPatch(newValue);
-                        UpdateStartCard(GetCardID(startCardEntry.Value));
+                        var patch = HarmonyPatcher.Patches.PlayerUICardHUD_UpdateHUD_Patch;
+                        HarmonyPatcher.TogglePatch(patch, enable);
+                        LoadoutManager.ToggleInfiniteAmmo(enable);
                     }
+                });
+
+                unlimitedDiscardsEntry.OnEntryValueChanged.Subscribe((_, enable) =>
+                {
+                    if (isModEnabled)
+                    {
+                        var patch = HarmonyPatcher.Patches.MechController_UseDiscardAbility_Patch;
+                        HarmonyPatcher.TogglePatch(patch, enable);
+                        if (enable)
+                            LoadoutManager.SetOverrideCardColors(LoadoutManager.UnlimitedDiscardsCardColor);
+                        else
+                            LoadoutManager.RestoreCardColors();
+                    }
+                });
+
+                removeDiscardLocksEntry.OnEntryValueChanged.Subscribe((_, enable) =>
+                {
+                    if (isModEnabled && enable)
+                        LoadoutManager.EnableRemoveDiscardLocks();
                 });
             }
         }
@@ -123,164 +139,63 @@ namespace CustomCardLoadout
             NeonLite.Modules.Anticheat.Unregister(MelonAssembly);
         }
 
+        private static void ToggleMod(Core modInstance, bool enable)
+        {
+            if (enable == isModEnabled)
+                return;
+            if (enable)
+                EnableMod(modInstance);
+            else 
+                DisableMod();
+        }
+
         private static void EnableMod(Core modInstance)
         {
-            GameInstance.OnLevelLoadComplete += OnLevelLoadComplete;
-            ToggleInfiniteAmmoAndDiscardsPatch(Settings.startCardInfiniteEntry.Value);
-            UpdateStartCard(GetCardID(Settings.startCardEntry.Value));
             modInstance.RegisterAntiCheat();
-            modEnabled = true;
+
+            GameInstance.OnLevelLoadComplete += LoadoutManager.OnLevelLoadComplete;
+
+            LoadoutManager.UpdateCardSlot(ref LoadoutManager.firstCardSlot, Settings.firstCardSlotEntry.Value, Settings.firstCardSlotCountEntry.Value);
+            LoadoutManager.UpdateCardSlot(ref LoadoutManager.secondCardSlot, Settings.secondCardSlotEntry.Value, Settings.secondCardSlotCountEntry.Value);
+
+            bool isUnlimitedDiscardsEnabled = Settings.unlimitedDiscardsEntry.Value;
+            bool isInfiniteAmmoEnabled = Settings.infiniteAmmoEntry.Value;
+
+            if (isUnlimitedDiscardsEnabled)
+            {
+                HarmonyPatcher.TogglePatch(HarmonyPatcher.Patches.MechController_UseDiscardAbility_Patch, true);
+                LoadoutManager.SetOverrideCardColors(LoadoutManager.UnlimitedDiscardsCardColor);
+            }
+
+            HarmonyPatcher.TogglePatch(HarmonyPatcher.Patches.PlayerUICardHUD_UpdateHUD_Patch, isInfiniteAmmoEnabled);
+            LoadoutManager.ToggleInfiniteAmmo(isInfiniteAmmoEnabled);
+
+            if (Settings.removeDiscardLocksEntry.Value)
+                LoadoutManager.removeDiscardLocks = true;
+
+            isModEnabled = true;
         }
 
         private static void DisableMod()
         {
-            GameInstance.OnLevelLoadComplete -= OnLevelLoadComplete;
-            RestoreStartCard();
-            UnpatchInfiniteAmmoAndDiscards();
-            modEnabled = false;
-        }
+            GameInstance.OnLevelLoadComplete -= LoadoutManager.OnLevelLoadComplete;
+            HarmonyPatcher.TogglePatch(HarmonyPatcher.Patches.MechController_UseDiscardAbility_Patch, false);
+            HarmonyPatcher.TogglePatch(HarmonyPatcher.Patches.PlayerUICardHUD_UpdateHUD_Patch, false);
+            LoadoutManager.RestoreCardColors();
 
-        private static void ToggleInfiniteAmmoAndDiscardsPatch(bool apply)
-        {
-            if (infiniteAmmoAndDiscardsPatched == apply)
-                return;
-            if (apply)
-                DoPatchInfiniteAmmoAndDiscards();
-            else
-                UnpatchInfiniteAmmoAndDiscards();
-        }
-
-        private static void DoPatchInfiniteAmmoAndDiscards()
-        {
-            if (infiniteAmmoAndDiscardsPatched)
-                return;
-
-            HarmonyInstance.Patch(OriginalUseDiscardAbilityMethod, prefix: UseDiscardAbilityPrefix);
-            HarmonyInstance.Patch(OriginalUpdateCardHUDMethod, postfix: UpdateCardHUDPostfix);
-            infiniteAmmoAndDiscardsPatched = true;
-        }
-
-        private static void UnpatchInfiniteAmmoAndDiscards()
-        {
-            if (!infiniteAmmoAndDiscardsPatched)
-                return;
-
-            HarmonyInstance.Unpatch(OriginalUseDiscardAbilityMethod, UseDiscardAbilityPrefixMethod);
-            HarmonyInstance.Unpatch(OriginalUpdateCardHUDMethod, UpdateCardHUDPostfixMethod);
-            infiniteAmmoAndDiscardsPatched = false;
+            isModEnabled = false;
         }
 
         public override void OnSceneWasLoaded(int buildindex, string sceneName)
         {
             if (sceneName.Equals("HUB_HEAVEN")
-                && modEnabled == false
-                && infiniteAmmoAndDiscardsPatched == false
+                && isModEnabled == false
+                && HarmonyPatcher.IsPatched_MechController_UseDiscardAbility == false
+                && !LoadoutManager.removeDiscardLocks
                 && NeonLite.Modules.Anticheat.Active)
             {
                 UnregisterAntiCheat();
             }
-        }
-
-        public static void OnLevelLoadComplete()
-        {
-            if (SceneManager.GetActiveScene().name.Equals("Heaven_Environment"))
-            {
-                return;
-            }
-
-            TryAddCard(startCardData);
-        }
-
-        private static void RestoreStartCard()
-        {
-            if (startCardData != null && startCardData.cardName.EndsWith("_Infinite"))
-            {
-                startCardData.cardName = startCardData.cardName.Substring(0, startCardData.cardName.Length - "_Infinite".Length);
-                startCardData.cardColor = originalCardColor.Value;
-            }
-        }
-
-        private static void UpdateStartCard(string cardID)
-        {
-            RestoreStartCard();
-
-            // Get new card
-            if (GameInstance.GetGameData() is not GameData gameData)
-            {
-                MelonLogger.Warning("Failed to update start card: GameData is null.");
-                return;
-            }
-
-            if (gameData.GetCard(cardID) is not PlayerCardData newCard)
-            {
-                MelonLogger.Warning($"Failed to update start card: could not get card data for '{cardID}'.");
-                return;
-            }
-
-            originalCardColor = newCard.cardColor;
-
-            if (infiniteAmmoAndDiscardsPatched)
-            {
-                newCard.cardColor = new UnityEngine.Color(1f, 1f, 1f, 1f);
-                if (!newCard.cardName.EndsWith("_Infinite"))
-                    newCard.cardName += "_Infinite";
-            }
-
-            startCardData = newCard;
-        }
-
-        private static void TryAddCard(PlayerCardData card)
-        {
-            if (card == null || !NeonLite.Modules.Anticheat.Active) 
-                return;
-
-            if (UnityEngine.Object.FindObjectOfType<MechController>() is not MechController mech)
-            {
-                MelonLogger.Warning("Failed to add card: MechController not found.");
-                return;
-            }
-
-            int ammoOverride = 0;
-
-            if (infiniteAmmoAndDiscardsPatched)
-            {
-                ammoOverride = int.MaxValue / 2;
-            }
-
-            MethodInfo pickupMethod = typeof(MechController).GetMethod("DoCardPickup", BindingFlags.NonPublic | BindingFlags.Instance);
-            pickupMethod.Invoke(mech, [card, ammoOverride]);
-        }
-
-        public static bool UseDiscardAbilityPrefixPatch(MechController __instance, ref bool __result, int cardInhHandIndex)
-        {
-            if (!NeonLite.Modules.Anticheat.Active)
-                return true;
-
-            var deckField = AccessTools.Field(typeof(MechController), "deck");
-            PlayerCardDeck deck = deckField.GetValue(__instance) as PlayerCardDeck;
-
-            var card = deck.GetCardInHand(cardInhHandIndex);
-            PlayerCardData cardData = card.data;
-
-            if (!cardData.cardName.EndsWith("_Infinite"))
-            {
-                return true;
-            }
-
-            var discardMethod = AccessTools.Method(typeof(MechController), "UseDiscardAbility",
-                [typeof(PlayerCardData), typeof(int), typeof(bool), typeof(bool)]);
-
-            const bool discardOnSuccess = false;
-
-            __result = (bool)discardMethod.Invoke(__instance, [cardData, cardInhHandIndex, discardOnSuccess, false]);
-
-            return false;
-        }
-
-        public static void UpdateCardHUDPostfixPatch(PlayerUICardHUD __instance, PlayerCard card)
-        {
-            if (card.data.cardName.EndsWith("Infinite"))
-                __instance.textAmmo.text = "Inf";
         }
     }
 }

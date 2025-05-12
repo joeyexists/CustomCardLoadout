@@ -48,7 +48,9 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<Compile Include="LoadoutManager.cs" />
 		<Compile Include="Core.cs" />
+		<Compile Include="HarmonyPatcher.cs" />
 	</ItemGroup>
 	
 	<Target Name="PostBuild" AfterTargets="PostBuildEvent">
